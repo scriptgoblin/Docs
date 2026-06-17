@@ -15,7 +15,7 @@ For questions or issues: nregoblin@gmail.com
 6. Complex Types and Collections
 7. Multiple Save Slots
 8. Backends
-9. Encryption
+9. Encryption (⚠️ Adding encryption to an existing game, Handling load failures)
 10. Compression
 11. Schema Versioning and Migration
 12. Async Save
@@ -237,7 +237,19 @@ SaveForge.Set("coins", 5000);
 // SaveData.sav on disk is now ciphertext — not human-readable
 ```
 
-The password is compiled into your game. For stronger security, derive it at runtime from a device identifier or a server-issued token rather than embedding a plain string.
+### ⚠️ What encryption does — and does not — protect against
+
+Encryption prevents casual cheating: a player opening the save file in a text editor and changing their coin count will see unreadable ciphertext instead of JSON. For most games, that is enough.
+
+It does **not** prevent a determined player from finding your password. Because the password is written directly in your code, it is compiled into the game's executable. Anyone with basic reverse-engineering tools (which are freely available) can extract it. Once they have the password, they can decrypt, edit, and re-encrypt the file just as freely as if there were no encryption at all.
+
+**What this means in practice:**
+
+- Use a password that is unique to this game and not used anywhere else — not your email password, not a password you reuse across projects
+- Do not store anything truly sensitive in save files (payment info, account credentials, server tokens)
+- If cheat-prevention is critical for your game (online leaderboards, competitive play), validate important values server-side rather than relying on the save file
+
+For most single-player games this level of protection is perfectly reasonable — it stops the majority of players from editing saves and keeps the file format opaque. Just go in with accurate expectations of what it provides.
 
 ### Custom salt
 
@@ -246,6 +258,57 @@ The default salt is `ScriptGoblin.SaveForge`. Change it per-project so save file
 ```csharp
 new AesEncryption("my-password", salt: "MyGame.v1")
 ```
+
+### ⚠️ Adding encryption to an existing game
+
+If you ship a version without encryption and then add it in an update, existing save files on disk are plain JSON. SaveForge will fail to decrypt them on first load and **start fresh** — the player's progress is lost.
+
+To avoid this, handle the transition explicitly with `OnLoadFailed`:
+
+```csharp
+var options = new SaveSystemJsonOptions
+{
+    Encryption = new AesEncryption("my-password"),
+    OnLoadFailed = (reason, ex) =>
+    {
+        if (reason == SaveLoadFailureReason.DecryptionFailed)
+        {
+            // Try loading the old unencrypted file and re-save it encrypted
+            var legacy = new SaveSystemJson("SaveData");   // plain, no encryption
+            var data   = legacy.GetAllKeys();
+            // ... copy keys across, then delete the old file
+        }
+    }
+};
+```
+
+The same issue applies if you change the password or salt between builds — any existing save files become unreadable.
+
+### Handling load failures
+
+`OnLoadFailed` fires whenever a save file cannot be loaded, regardless of cause. Use it to show an in-game message, log to analytics, or attempt recovery from a backup:
+
+```csharp
+var options = new SaveSystemJsonOptions
+{
+    Encryption = new AesEncryption("my-password"),
+    OnLoadFailed = (reason, ex) =>
+    {
+        Debug.LogError($"[Save] Load failed: {reason} — {ex.Message}");
+        ShowUI("Your save data could not be loaded. Starting a new game.");
+    }
+};
+```
+
+The three possible reasons are:
+
+| Reason | Cause |
+|---|---|
+| `DecryptionFailed` | Wrong password, wrong salt, or file was not encrypted |
+| `DecompressionFailed` | Compression setting mismatch between write and read |
+| `CorruptedFile` | File I/O error or invalid JSON |
+
+Without `OnLoadFailed` set, SaveForge logs a warning and starts fresh silently.
 
 ### Implementing your own encryption
 
@@ -454,17 +517,13 @@ If your save data should be backed up (e.g. paid unlocks, account data), remove 
 
 ## 17. Demo Scene
 
-Open `Assets/ScriptGoblin/SaveForge/Demo/SaveForgeDemo.unity` and press Play. All output appears in the Console window. The scene demonstrates:
+Open `Assets/ScriptGoblin/SaveForge/Demo/SaveForgeDemo.unity` and press Play. The scene is an interactive UI with three panels:
 
-- Basic type read/write
-- Default values and `GetOrSet` first-run initialization
-- Structs and collections
-- Multiple save slots
-- Async save with callback
-- AES-256 encryption
-- GZip compression
-- Schema migration
-- Key removal
+- **Player** — edit name, coins, level, and volume; toggle AES-256 encryption; Save / Load / New buttons
+- **Save Slots** — three independent save files; each shows the saved character name and timestamp with per-slot Load and Delete
+- **File on Disk** — displays the raw `.sav` file after every save; shows readable JSON normally, or ciphertext when encryption is enabled
+
+Try saving to a slot, stopping Play Mode, and pressing Play again — loading the slot restores all values, demonstrating persistence across sessions. Toggle encryption on and save to a different slot to see the file viewer switch between JSON and ciphertext.
 
 ---
 

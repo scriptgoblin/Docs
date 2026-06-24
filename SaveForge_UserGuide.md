@@ -40,7 +40,9 @@ Optional features include AES-256 encryption, GZip compression, schema migration
 
 ## 2. Installation
 
-Import the package from the Unity Asset Store. SaveForge requires **Newtonsoft.Json for Unity** (`com.unity.nuget.newtonsoft-json`), which is included with Unity 2022.3 and later. If you are on an older version, install it from the Package Manager before importing SaveForge.
+Import the package from the Unity Asset Store. SaveForge requires **Newtonsoft.Json for Unity** (`com.unity.nuget.newtonsoft-json`). If it is not already in your project, install it via **Window → Package Manager → + → Add package by name** and enter `com.unity.nuget.newtonsoft-json`.
+
+If the package is missing, SaveForge will log an error in the Console with installation instructions when the Editor loads.
 
 After import, the assembly `ScriptGoblin.SaveForge` is available to all scripts in your project automatically.
 
